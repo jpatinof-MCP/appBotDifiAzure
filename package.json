@@ -1,14 +1,18 @@
 {
-  "name": "dify-bridge",
+  "name": "dify-bot-bridge",
   "version": "1.0.0",
-  "description": "Bridge entre Azure Bot y Dify",
+  "description": "Bridge entre Azure Bot Framework y Dify Advanced Chat App API",
   "main": "index.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20 <23"
+  },
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "restify": "^11.1.0",
-    "botbuilder": "^4.21.0",
-    "axios": "^1.7.1"
+    "axios": "^1.7.2",
+    "botbuilder": "^4.22.0",
+    "restify": "^11.1.0"
   }
 }
