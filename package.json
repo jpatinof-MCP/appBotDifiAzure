@@ -1,0 +1,14 @@
+{
+  "name": "dify-bridge",
+  "version": "1.0.0",
+  "description": "Bridge entre Azure Bot y Dify",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "restify": "^11.1.0",
+    "botbuilder": "^4.21.0",
+    "axios": "^1.7.1"
+  }
+}
