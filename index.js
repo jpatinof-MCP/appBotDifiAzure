@@ -1,135 +1,164 @@
-/**
- * Dify <-> Azure Bot Bridge
- * - Expone /api/messages para Bot Framework
- * - Llama a Dify /v1/chat-messages en modo blocking
- * - Mantiene sesiones privadas por usuario (user & conversation_id)
- */
+// Bridge Azure Bot Framework -> Dify (blocking)
+//
+// Requisitos de entorno (exactos, respetando mayúsculas/minúsculas):
+// - MicrosoftAppId
+// - MicrosoftAppPassword
+// - DIFY_API_BASE        (p. ej. http://101.44.8.170/v1  sin “/” al final)
+// - DIFY_API_KEY         (p. ej. app-IfzyJ1rKmtXMc6YMlKWm6mck  sin “Bearer”)
+//
+// Node 20+ (App Service). Usa Restify y Bot Framework SDK.
 
 const restify = require('restify');
-const { BotFrameworkAdapter } = require('botbuilder');
-const axios = require('axios');
+const { ActivityHandler, BotFrameworkAdapter } = require('botbuilder');
 
-// ==== Variables de entorno requeridas (ponerlas en Azure → Configuration → Application settings) ====
-const APP_ID = process.env.MicrosoftAppId;            // GUID de tu App Registration
-const APP_PASSWORD = process.env.MicrosoftAppPassword; // Client Secret de tu App Registration
-const DIFY_BASE = (process.env.DIFY_API_BASE || '').replace(/\/$/, ''); // ej. http://101.44.8.170/v1 (sin slash final)
-const DIFY_KEY = process.env.DIFY_API_KEY;            // API Key de tu Dify App
-
-// Validación básica de configuración
-const missing = [];
-if (!APP_ID) missing.push('MicrosoftAppId');
-if (!APP_PASSWORD) missing.push('MicrosoftAppPassword');
-if (!DIFY_BASE) missing.push('DIFY_API_BASE');
-if (!DIFY_KEY) missing.push('DIFY_API_KEY');
-
-if (missing.length) {
-  console.error('[CONFIG] Faltan variables:', missing.join(', '));
-}
-
-// ==== Adapter del Bot Framework ====
-const adapter = new BotFrameworkAdapter({
-  appId: APP_ID,
-  appPassword: APP_PASSWORD
-});
-
-// Log de errores no controlados del adapter
-adapter.onTurnError = async (context, error) => {
-  console.error('[BOT ERROR]', error);
-  try {
-    await context.sendActivity('Lo siento, ocurrió un error procesando tu mensaje.');
-  } catch (e) {
-    console.error('[BOT ERROR sendActivity]', e);
-  }
-};
-
-// ==== Servidor Restify ====
-const server = restify.createServer({ name: 'dify-bot-bridge' });
+// ---------------------------
+// Configuración / Entorno
+// ---------------------------
 const PORT = process.env.PORT || 3978;
 
-server.use(restify.plugins.bodyParser({ mapParams: true }));
-server.use(restify.plugins.queryParser());
+const MICROSOFT_APP_ID = process.env.MicrosoftAppId || '';
+const MICROSOFT_APP_PASSWORD = process.env.MicrosoftAppPassword || '';
 
-// Endpoint de salud y verificación rápida
-server.get('/', (req, res, next) => {
+const DIFY_BASE = ((process.env.DIFY_API_BASE || '').trim()).replace(/\/+$/, '');
+const DIFY_KEY = (process.env.DIFY_API_KEY || '').trim(); // SOLO el token, sin 'Bearer'
+
+// Logs de arranque (no imprimimos secretos)
+console.log('[BOOT] Node:', process.version);
+console.log('[BOOT] Port:', PORT);
+console.log('[BOOT] MicrosoftAppId present:', MICROSOFT_APP_ID.length > 0);
+console.log('[BOOT] DIFY_BASE:', DIFY_BASE || '(missing)');
+console.log('[BOOT] DIFY_KEY prefix/len:', (DIFY_KEY ? DIFY_KEY.slice(0, 8) : ''), '/', (DIFY_KEY || '').length);
+
+// ---------------------------
+// Servidor Restify
+// ---------------------------
+const server = restify.createServer();
+server.use(restify.plugins.bodyParser({ mapParams: false }));
+
+// Health check
+server.get('/health', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
   res.send(200, { ok: true, service: 'dify-bot-bridge', node: process.version });
-  return next();
 });
 
-server.get('/health', (req, res, next) => {
-  res.send(200, { status: 'healthy' });
-  return next();
-});
-
-// Bot Framework usará este endpoint POST
-server.post('/api/messages', async (req, res) => {
-  await adapter.processActivity(req, res, async (context) => {
-    // Solo procesamos mensajes de texto (ignorar typing, conversationUpdate, etc.)
-    if (context.activity?.type !== 'message') return;
-
-    const text = String(context.activity.text || '').trim();
-    const fromId = context.activity?.from?.id || 'unknown';
-    const convId = context.activity?.conversation?.id || undefined;
-
-    // Construimos identidad estable por usuario para sesiones privadas
-    const userId = `teams-${fromId}`;
-
-    // Si no hay texto, devolvemos un aviso
-    if (!text) {
-      await context.sendActivity('¿Podrías escribir tu consulta?');
-      return;
-    }
-
-    // Llamada a Dify (modo blocking)
-    try {
-      const payload = {
-        inputs: {},                  // si tu App en Dify usa inputs personalizados, colócalos aquí
-        query: text,                 // texto del usuario
-        response_mode: 'blocking',   // blocking (sencillo y confiable para bot)
-        conversation_id: convId || '', // ayuda a mantener el contexto por conversación
-        user: userId                 // identidad única por usuario
-        // files: []                 // (opcional) si luego quieres enviar archivos
-      };
-
-      const difyResp = await axios.post(
-        `${DIFY_BASE}/chat-messages`,
-        payload,
-        {
-          headers: { Authorization: `Bearer ${DIFY_KEY}`, 'Content-Type': 'application/json' },
-          timeout: 60000, // 60s
-          maxContentLength: 20 * 1024 * 1024
-        }
-      );
-
-      // Dify (blocking) devuelve: { event, answer, conversation_id, ... }
-      const answer = difyResp?.data?.answer ?? '';
-      if (!answer) {
-        console.warn('[DIFY] Respuesta vacía o inesperada:', difyResp?.data);
-        await context.sendActivity('No recibí contenido del motor de IA. Intenta nuevamente.');
-      } else {
-        await context.sendActivity(answer);
-      }
-    } catch (err) {
-      // Logs detallados de error
-      const status = err?.response?.status;
-      const data = err?.response?.data;
-      console.error('[DIFY ERROR]', status, data || err.message);
-
-      if (status === 401 || status === 403) {
-        await context.sendActivity('No tengo autorización para llamar a la IA. Revisa la API key configurada.');
-      } else if (status === 404) {
-        await context.sendActivity('No se encontró el servicio de IA. Revisa la URL base configurada.');
-      } else {
-        await context.sendActivity('Hubo un problema al contactar el motor de IA. Inténtalo otra vez.');
-      }
-    }
+// Endpoint de mensajes del Bot Framework (POST obligatorio)
+server.post('/api/messages', (req, res) => {
+  adapter.processActivity(req, res, async (context) => {
+    await bot.run(context);
   });
 });
 
-// Iniciar servidor
 server.listen(PORT, () => {
-  console.log(`[BOOT] Bridge listo en puerto ${PORT}`);
-  console.log(`[BOOT] Endpoint: POST /api/messages`);
-  if (missing.length) {
-    console.warn(`[BOOT] Advertencia: Faltan variables de entorno: ${missing.join(', ')}`);
-  }
+  console.log(`[BOOT] Bridge listo. Endpoints: GET /health  |  POST /api/messages  |  PORT ${PORT}`);
 });
+
+// ---------------------------
+// Adapter y Bot
+// ---------------------------
+const adapter = new BotFrameworkAdapter({
+  appId: MICROSOFT_APP_ID,
+  appPassword: MICROSOFT_APP_PASSWORD,
+});
+
+adapter.onTurnError = async (context, error) => {
+  console.error('[BOT ERROR]', error);
+  try {
+    await context.sendActivity('Lo siento, ocurrió un problema procesando tu mensaje.');
+  } catch (e) {
+    console.error('[BOT ERROR][sendActivity failed]', e);
+  }
+};
+
+// Memoria simple para guardar conversation_id por usuario (contexto Dify)
+const userConv = new Map();
+
+class DifyBridgeBot extends ActivityHandler {
+  constructor() {
+    super();
+
+    this.onMessage(async (context, next) => {
+      const text = (context.activity && (context.activity.text || '')).trim();
+      const userId = getStableUserId(context);
+
+      if (!text) {
+        await context.sendActivity('¿Podrías repetirlo? No recibí texto.');
+        await next();
+        return;
+      }
+
+      try {
+        const answer = await askDifyBlocking(text, userId);
+        await context.sendActivity(answer || 'No obtuve respuesta del servicio.');
+      } catch (err) {
+        console.error('[DIFY ERROR]', err && err.message ? err.message : err);
+        await context.sendActivity('Hubo un problema consultando al servicio. Intenta nuevamente.');
+      }
+
+      await next();
+    });
+
+    this.onMembersAdded(async (context, next) => {
+      for (const member of context.activity.membersAdded || []) {
+        if (member.id !== context.activity.recipient.id) {
+          await context.sendActivity('¡Hola! Soy tu asistente. ¿En qué puedo ayudarte?');
+        }
+      }
+      await next();
+    });
+  }
+}
+
+const bot = new DifyBridgeBot();
+
+// ---------------------------
+// Funciones auxiliares
+// ---------------------------
+
+function getStableUserId(context) {
+  const a = context.activity || {};
+  const from = a.from || {};
+  return (from.id || (a.conversation && a.conversation.id) || 'anonymous-user');
+}
+
+async function askDifyBlocking(text, userId) {
+  if (!DIFY_BASE || !DIFY_KEY) {
+    throw new Error('Faltan DIFY_API_BASE o DIFY_API_KEY en variables de entorno.');
+  }
+
+  const url = `${DIFY_BASE}/chat-messages`;
+  const headers = {
+    'Authorization': `Bearer ${DIFY_KEY}`, // usar backticks para interpolar
+    'Content-Type': 'application/json',
+  };
+
+  const existingConvId = userConv.get(userId) || '';
+
+  const payload = {
+    inputs: {},
+    query: text,
+    response_mode: 'blocking',
+    user: userId,
+    ...(existingConvId ? { conversation_id: existingConvId } : {}),
+  };
+
+  // Node 20+ ya trae fetch global
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '');
+    throw new Error(`Dify HTTP ${res.status} - ${bodyText}`);
+  }
+
+  const data = await res.json();
+
+  // Persistimos conversation_id para mantener el contexto del usuario
+  if (data && data.conversation_id) {
+    userConv.set(userId, data.conversation_id);
+  }
+
+  return (data && typeof data.answer === 'string') ? data.answer : '';
+}
