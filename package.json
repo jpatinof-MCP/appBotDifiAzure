@@ -1,12 +1,10 @@
 {
-  "name": "dify-chatbot-azure",
+  "name": "dify-chatbot-azure-min",
   "version": "1.0.0",
-  "description": "Chatbot minimalista para Azure App Service (Linux, Node 20) con Dify y opcional Azure OpenAI.",
+  "description": "Servidor mínimo para Azure App Service (Linux, Node 20) que consume Dify y limpia <details> del answer.",
   "main": "server.cjs",
   "private": true,
-  "engines": {
-    "node": ">=20.x"
-  },
+  "engines": { "node": ">=20.x" },
   "scripts": {
     "start": "node server.cjs",
     "start:dev": "NODE_ENV=development node server.cjs"
