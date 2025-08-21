@@ -1,19 +1,18 @@
 {
-  "name": "afiliacionmcp-difytbot-app",
-  "version": "1.1.0",
+  "name": "dify-chatbot-azure",
+  "version": "1.0.0",
+  "description": "Chatbot minimalista para Azure App Service (Linux, Node 20) con Dify y opcional Azure OpenAI.",
+  "main": "server.cjs",
   "private": true,
-  "type": "module",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.x"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.cjs",
+    "start:dev": "NODE_ENV=development node server.cjs"
   },
   "dependencies": {
-    "compression": "^1.7.5",
-    "cors": "^2.8.5",
     "express": "^4.19.2",
-    "helmet": "^7.1.0",
-    "morgan": "^1.10.0"
+    "helmet": "^7.1.0"
   }
 }
