@@ -7,7 +7,7 @@ const PORT =
   Number(process.env.PORT) ||
   Number(process.env.WEBSITE_PORT) ||
   Number(process.env.WEBSITES_PORT) ||
-  8080;
+  3000;
 const HOST = process.env.HOST || "0.0.0.0";
 
 // -------------------- Datos en duro (según tu pedido) --------------------
