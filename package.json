@@ -1,16 +1,16 @@
 {
   "name": "dify-chatbot-azure-min",
   "version": "1.0.0",
-  "description": "Servidor mínimo para Azure App Service (Linux, Node 20) que consume Dify y limpia <details> del answer.",
-  "main": "server.cjs",
   "private": true,
-  "engines": { "node": ">=20.x" },
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "start": "node server.cjs",
-    "start:dev": "NODE_ENV=development node server.cjs"
+    "start": "node server.cjs"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "helmet": "^7.1.0"
+    "axios": "^1.7.2",
+    "express": "^4.19.2"
   }
 }
